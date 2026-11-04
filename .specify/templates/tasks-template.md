@@ -5,7 +5,7 @@ description: "Task list template for feature implementation"
 
 # Tasks: [FEATURE NAME]
 
-**Input**: Design documents from `/specs/[###-feature-name]/`
+**Input**: Design documents from `[module]/`, alongside the owning userscript
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
 **Tests**: The examples below include test tasks. Tests are OPTIONAL - only include them if explicitly requested in the feature specification.
@@ -20,10 +20,10 @@ description: "Task list template for feature implementation"
 
 ## Path Conventions
 
-- **Single project**: `src/`, `tests/` at repository root
-- **Web app**: `backend/src/`, `frontend/src/`
-- **Mobile**: `api/src/`, `ios/src/` or `android/src/`
-- Paths shown below assume single project - adjust based on plan.md structure
+- **Module**: `[module]/[module].user.js` and `[module]/[module].test.cjs`
+- **Documentation**: `[module]/spec.md`, `[module]/plan.md`, `[module]/tasks.md`
+- **Loose scripts**: `[module].user.js` at repository root until companions exist
+- Paths shown below are generic examples; use the module layout from plan.md
 
 <!-- 
   ============================================================================

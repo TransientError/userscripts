@@ -78,20 +78,28 @@ Given that feature description, do this:
 
 3. **Create the spec feature directory**:
 
-   Specs live under the default `specs/` directory unless the user explicitly provides `SPECIFY_FEATURE_DIRECTORY`.
+   Repository override: specs and supporting documents live alongside the owning
+   userscript, as described in `AGENTS.md`. Do not create a central `specs/` tree.
 
    **Resolution order for `SPECIFY_FEATURE_DIRECTORY`**:
    1. If the user explicitly provided `SPECIFY_FEATURE_DIRECTORY` (e.g., via environment variable, argument, or configuration), use it as-is
-   2. Otherwise, auto-generate it under `specs/`:
-      - Check `.specify/init-options.json` for `branch_numbering`
-      - If `"timestamp"`: prefix is `YYYYMMDD-HHMMSS` (current timestamp)
-      - If `"sequential"` or absent: prefix is `NNN` (next available 3-digit number after scanning existing directories in `specs/`)
-      - Construct the directory name: `<prefix>-<short-name>` (e.g., `003-user-auth` or `20260319-143022-user-auth`)
-      - Set `SPECIFY_FEATURE_DIRECTORY` to `specs/<directory-name>`
+   2. Otherwise, identify the userscript module named by the request:
+      - For an existing module, use its directory (e.g., `kifubara-practice`).
+      - For a loose script, create a directory named after it without `.user.js`,
+        move the script into it, and update any references affected by the move.
+      - For a new userscript, use its intended module name without a numeric or
+        timestamp prefix.
+      - If ownership is ambiguous or spans multiple scripts, ask which module
+        should own the documents before creating or moving files.
+      - Set `SPECIFY_FEATURE_DIRECTORY` to that repository-relative module path.
+        Do not reuse `.specify/feature.json` if it selects a different module.
 
    **Create the directory and spec file**:
    - `mkdir -p SPECIFY_FEATURE_DIRECTORY`
-   - Copy `.specify/templates/spec-template.md` to `SPECIFY_FEATURE_DIRECTORY/spec.md` as the starting point
+   - If `SPECIFY_FEATURE_DIRECTORY/spec.md` does not exist, copy
+     `.specify/templates/spec-template.md` there as the starting point.
+     Otherwise, read and update the existing spec, preserving requirements
+     unrelated to the requested change.
    - Set `SPEC_FILE` to `SPECIFY_FEATURE_DIRECTORY/spec.md`
    - Persist the resolved path to `.specify/feature.json`:
      ```json
@@ -99,7 +107,7 @@ Given that feature description, do this:
        "feature_directory": "<resolved feature dir>"
      }
      ```
-     Write the actual resolved directory path value (for example, `specs/003-user-auth`), not the literal string `SPECIFY_FEATURE_DIRECTORY`.
+     Write the actual resolved directory path value (for example, `kifubara-practice`), not the literal string `SPECIFY_FEATURE_DIRECTORY`.
      This allows downstream commands (`/speckit.plan`, `/speckit.tasks`, etc.) to locate the feature directory without relying on git branch name conventions.
 
    **IMPORTANT**:

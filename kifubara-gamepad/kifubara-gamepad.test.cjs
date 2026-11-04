@@ -5,7 +5,7 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, 'kifubara-gamepad.user.js'), 'utf8');
-const autoSource = fs.readFileSync(path.join(__dirname, 'kifubara-auto-advance.user.js'), 'utf8');
+const autoSource = fs.readFileSync(path.join(__dirname, '..', 'kifubara-auto-advance.user.js'), 'utf8');
 
 class Target {
   constructor() {
