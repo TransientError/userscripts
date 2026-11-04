@@ -1,0 +1,33 @@
+/* ==UserStyle==
+@name         GoProblems Portrait Layout
+@namespace    https://github.com/TransientError
+@version      1.0.0
+@description  On a narrow/vertical monitor, stack the board and info/comments panel vertically on goproblems.com instead of side-by-side. Triggers by viewport width (<=1600px) so it works on a rotated 1440p monitor even when tiled to less than full height.
+@author       TransientError
+==/UserStyle== */
+
+@-moz-document domain("goproblems.com") {
+  @media (max-width: 1600px) {
+    /* main problem split: board + info panel -> stack vertically */
+    .lg\:flex.lg\:flex-row {
+      flex-direction: column !important;
+    }
+    /* info/comments panel: drop the left offset, add top gap when stacked */
+    .lg\:flex.lg\:flex-row > div:last-child {
+      margin-left: 0 !important;
+      margin-top: 0.75rem !important;
+    }
+
+    /* --- Collection-test / Rush page (splits at md) --- */
+    .flex-col.flex.md\:flex-row {
+      flex-direction: column !important;
+      align-items: center !important;   /* center board + 360px card */
+    }
+    .flex-col.flex.md\:flex-row > .md\:mr-3 {
+      margin-right: 0 !important;        /* drop the horizontal gap */
+    }
+    .flex-col.flex.md\:flex-row > .card {
+      margin-top: 0.75rem !important;    /* gap under the board */
+    }
+  }
+}

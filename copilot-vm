@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Start Copilot with the Violentmonkey MCP added for this session only.
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec copilot --additional-mcp-config "@$dir/vm-mcp.json" "$@"

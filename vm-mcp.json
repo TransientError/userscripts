@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "violentmonkey": {
+      "type": "local",
+      "command": "bunx",
+      "args": ["@violentmonkey/mcp", "-p", "5678"],
+      "tools": ["*"]
+    }
+  }
+}
