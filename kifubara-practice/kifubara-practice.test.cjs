@@ -59,12 +59,13 @@ class Element extends Target {
   click() { this.dispatchEvent({ type: 'click' }); }
 }
 
-function harness({ mobile = false } = {}) {
+function harness({ mobile = false, aiEnabled = true } = {}) {
   const document = new Target();
   document.head = new Element();
   document.body = new Element();
   document.documentElement = new Element();
   const classes = new Set();
+  if (!aiEnabled) classes.add('is-ai-off');
   document.body.classList = {
     toggle(name, force) {
       if (force) classes.add(name);
@@ -75,9 +76,17 @@ function harness({ mobile = false } = {}) {
   const viewer = new Element();
   const panel = new Element();
   const movesPane = new Element();
-  movesPane.append(new Element());
+  const host = mobile ? movesPane : panel;
+  const nativeContent = new Element();
+  const nativeStatsTabs = new Element();
+  const nativeStats = new Element();
+  nativeStats.textContent = 'Stats';
+  const nativeComments = new Element();
+  nativeComments.textContent = 'Comments';
+  nativeStatsTabs.append(nativeStats, nativeComments);
+  host.append(nativeContent, nativeStatsTabs, new Element());
   const ai = new Element();
-  ai.setAttribute('aria-pressed', 'true');
+  ai.setAttribute('aria-pressed', String(aiEnabled));
   let state = {
     currentNodeId: 'node-5',
     currentMoveNumber: 5,
@@ -107,17 +116,20 @@ function harness({ mobile = false } = {}) {
   document.querySelector = (selector) => ({
     '.sgf-viewer': viewer,
     '.gd-panel': panel,
+    '.gd-rtabs': nativeStatsTabs,
     '.gtf-pane[data-pane="moves"]': mobile ? movesPane : null,
     '[data-gtf-panes]': mobile ? movesPane : null,
     'button[data-kifubara-ai-toggle]': ai,
   })[selector] ?? null;
+  document.querySelectorAll = (selector) => selector === '[role="tab"], button'
+    ? [nativeStats, nativeComments] : [];
   const timers = new Map();
   let sequence = 0;
-  const prefs = { 'ai-next-move': true };
+  const prefs = { 'ai-next-move': aiEnabled };
   const windowObj = {
     __KIFU_EXPLORE_ENABLED: true,
     __KIFU_IS_EDITOR_GAME: false,
-    __KIFU_AI_ENABLED: true,
+    __KIFU_AI_ENABLED: aiEnabled,
     KIFU_PREFS: prefs,
     matchMedia: () => ({ matches: mobile, addEventListener() {} }),
     addEventListener() {},
@@ -137,13 +149,15 @@ function harness({ mobile = false } = {}) {
     },
     clearTimeout(id) { timers.delete(id); },
   });
-  const host = mobile ? movesPane : panel;
-  const practicePanel = host.children[0];
+  const practicePanel = host.children.find((child) => child.id === 'kifubara-practice-panel');
   const topBar = practicePanel.children[0];
-  const statsBox = practicePanel.children[1];
+  const analysisCard = practicePanel.children[1];
+  const statsBox = practicePanel.children[2];
   const toggle = topBar.children[0];
-  const status = topBar.children[1];
-  const statsToggle = topBar.children[2];
+  const statusWrap = topBar.children[1];
+  const status = statusWrap.children[1];
+  const analysisToggle = topBar.children[2];
+  const statsToggle = topBar.children[3];
   function statsMap() {
     const out = {};
     for (const row of statsBox.children) {
@@ -156,9 +170,14 @@ function harness({ mobile = false } = {}) {
     }
     return out;
   }
+  function outcomeBadge() {
+    const badge = statusWrap.children[0];
+    return badge.hidden ? null : badge;
+  }
   return {
     document, viewer, ai, windowObj, prefs, practicePanel, movesPane,
-    toggle, status, statsToggle, statsBox, statsMap, classes, requests, timers,
+    toggle, status, analysisToggle, statsToggle, statsBox, statsMap, outcomeBadge,
+    analysisCard, nativeStatsTabs, classes, requests, timers,
     setState(next) { state = next; rememberState(next); },
     setPingState(next) { pingState = next; },
     announce(next) {
@@ -174,14 +193,52 @@ function harness({ mobile = false } = {}) {
 
 test('enabling snapshots the recorded continuation and masks spoilers', () => {
   const h = harness();
+  assert.equal(
+    h.practicePanel.parentElement.children[
+      h.practicePanel.parentElement.children.indexOf(h.practicePanel) + 1
+    ],
+    h.nativeStatsTabs
+  );
   h.toggle.click();
   assert.equal(h.toggle.getAttribute('aria-pressed'), 'true');
   assert.equal(h.classes.has('kifubara-practice-awaiting'), true);
-  assert.equal(h.classes.has('is-ai-off'), true);
-  assert.equal(h.windowObj.__KIFU_AI_ENABLED, false);
+  assert.equal(h.classes.has('is-ai-off'), false);
+  assert.equal(h.windowObj.__KIFU_AI_ENABLED, true);
   assert.equal(h.prefs['ai-next-move'], true);
-  assert.equal(h.ai.getAttribute('aria-pressed'), 'false');
+  assert.equal(h.ai.getAttribute('aria-pressed'), 'true');
+  assert.match(
+    h.document.head.firstChild.textContent,
+    /body\.kifubara-practice-awaiting \.sgf-viewer-analysis/
+  );
+  assert.match(
+    h.document.head.firstChild.textContent,
+    /body\.kifubara-practice-awaiting \[data-kifubara-ai-candidates\]/
+  );
+  assert.equal(h.analysisToggle.textContent, 'Analysis');
+  assert.equal(h.analysisToggle.getAttribute('aria-pressed'), 'true');
+  assert.equal(h.analysisCard.hidden, false);
+  h.analysisToggle.click();
+  assert.equal(h.analysisToggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(h.analysisCard.hidden, true);
+  assert.equal(h.windowObj.__KIFU_AI_ENABLED, true);
+  h.analysisToggle.click();
+  assert.equal(h.analysisToggle.getAttribute('aria-pressed'), 'true');
+  assert.equal(h.analysisCard.hidden, false);
   assert.equal(h.status.textContent, 'Practice on · play your move');
+});
+
+test('analysis card shows current evaluation without enabling native AI', () => {
+  const h = harness({ aiEnabled: false });
+  h.windowObj.__KIFU_ANALYSIS = {
+    moves: [{ move_number: 6, root_winrate: 0.48, score_estimate: -0.3 }],
+  };
+  h.toggle.click();
+  assert.equal(h.windowObj.__KIFU_AI_ENABLED, false);
+  assert.equal(h.classes.has('is-ai-off'), true);
+  assert.equal(h.ai.getAttribute('aria-pressed'), 'false');
+  assert.equal(h.analysisCard.children[0].children[0].textContent, 'White');
+  assert.equal(h.analysisCard.children[0].children[1].textContent, '52%');
+  assert.equal(h.analysisCard.children[1].children[1].textContent, 'W+0.3');
 });
 
 test('playing the recorded child immediately starts the next question', () => {
@@ -311,7 +368,9 @@ test('different child waits for full analysis, returns, and reveals comparison',
   assert.equal(h.prefs['ai-next-move'], true);
   assert.match(h.status.textContent, /You: Q16 \(2\.5\)/);
   assert.match(h.status.textContent, /Game: D4/);
-  assert.match(h.status.textContent, /Better than game by 1\.5/);
+  assert.doesNotMatch(h.status.textContent, /Better than game by/);
+  assert.equal(h.outcomeBadge().textContent, 'BETTER · 1.5 PTS');
+  assert.equal(h.outcomeBadge().style.color, '#1e9600');
 });
 
 test('analysis timeout returns and reports unavailable without inventing a score', () => {
@@ -399,7 +458,10 @@ test('viewer attachment disconnects MutationObserver so status updates cannot lo
 
 test('practice stats show recorded matches and game comparisons without AI grading', () => {
   const h = harness({ mobile: true });
-  assert.equal(h.movesPane.firstChild, h.practicePanel);
+  assert.equal(
+    h.movesPane.children[h.movesPane.children.indexOf(h.practicePanel) + 1],
+    h.nativeStatsTabs
+  );
   assert.deepEqual(h.statsMap()['Compared / Guessed'], ['0 / 0', '0 / 0']);
   assert.deepEqual(h.statsMap().Accuracy, ['–', '–']);
 
@@ -456,7 +518,7 @@ test('practice stats show recorded matches and game comparisons without AI gradi
   assert.deepEqual(h.statsMap()['Worse than game'], ['0', '0']);
   assert.deepEqual(h.statsMap()['Mean vs game (pts)'], ['+1.50', '0.00']);
   const buckets = h.statsBox.children.find((row) => row.className === 'kp-buckets');
-  assert.deepEqual(buckets.children.map((cell) => cell.children[1].textContent), Array(6).fill('0·0'));
+  assert.deepEqual(buckets.children.map((cell) => cell.children[1].textContent), Array(5).fill('0·0'));
 
   // Collapsing and expanding stats works and persists across Practice toggle
   h.statsToggle.click();
@@ -505,7 +567,7 @@ test('exact matches are comparable without analysis and missing comparisons are 
   assert.deepEqual(h.statsMap()['Mean vs game (pts)'], ['0.00', '0.00']);
   assert.deepEqual(h.statsMap().Unavailable, ['0', '1']);
   const buckets = h.statsBox.children.find((row) => row.className === 'kp-buckets');
-  assert.deepEqual(buckets.children.map((cell) => cell.children[1].textContent), Array(6).fill('0·0'));
+  assert.deepEqual(buckets.children.map((cell) => cell.children[1].textContent), Array(5).fill('0·0'));
 
   h.toggle.click();
   h.windowObj.__KIFU_ANALYSIS = {
@@ -531,14 +593,14 @@ test('exact matches are comparable without analysis and missing comparisons are 
   });
   assert.equal(h.statsBox.firstChild.textContent, 'Recorded matches: 2 / 3 (66.7%)');
   assert.deepEqual(h.statsMap()['Compared / Guessed'], ['1 / 1', '2 / 2']);
-  assert.deepEqual(h.statsMap()['Equivalent to game'], ['1', '1']);
-  assert.deepEqual(h.statsMap()['Worse than game'], ['0', '1']);
+  assert.deepEqual(h.statsMap()['Equivalent to game'], ['1', '2']);
+  assert.deepEqual(h.statsMap()['Worse than game'], ['0', '0']);
   assert.deepEqual(h.statsMap()['Mean vs game (pts)'], ['0.00', '-0.05']);
   assert.equal(h.statsMap().Unavailable, undefined);
   const updatedBuckets = h.statsBox.children.find((row) => row.className === 'kp-buckets');
   assert.deepEqual(
     updatedBuckets.children.map((cell) => cell.children[1].textContent),
-    ['0·1', '0·0', '0·0', '0·0', '0·0', '0·0']
+    ['0·0', '0·0', '0·0', '0·0', '0·0']
   );
 });
 
@@ -570,7 +632,7 @@ for (const [player, sign] of [['B', 1], ['W', -1]]) {
     assert.deepEqual(h.statsMap().Accuracy, values('100.0%'));
     assert.deepEqual(h.statsMap()['Mean vs game (pts)'], values('0.00'));
     let buckets = h.statsBox.children.find((row) => row.className === 'kp-buckets');
-    assert.deepEqual(buckets.children.map((cell) => cell.children[1].textContent), Array(6).fill('0·0'));
+    assert.deepEqual(buckets.children.map((cell) => cell.children[1].textContent), Array(5).fill('0·0'));
 
     h.toggle.click();
     h.setState(parent);
@@ -589,11 +651,11 @@ for (const [player, sign] of [['B', 1], ['W', -1]]) {
     assert.deepEqual(h.statsMap()['Compared / Guessed'], values('1 / 1', '0 / 0'));
     assert.deepEqual(h.statsMap().Accuracy, values('0.0%'));
     assert.deepEqual(h.statsMap()['Mean vs game (pts)'], values('-0.10'));
-    assert.deepEqual(h.statsMap()['Equivalent to game'], values('0'));
-    assert.deepEqual(h.statsMap()['Worse than game'], values('1'));
-    assert.match(h.status.textContent, /Worse than game by 0\.1/);
+    assert.deepEqual(h.statsMap()['Equivalent to game'], values('1'));
+    assert.deepEqual(h.statsMap()['Worse than game'], values('0'));
+    assert.doesNotMatch(h.status.textContent, /Worse than game by/);
     buckets = h.statsBox.children.find((row) => row.className === 'kp-buckets');
-    assert.equal(buckets.children[0].children[1].textContent, player === 'B' ? '1·0' : '0·1');
+    assert.equal(buckets.children[0].children[1].textContent, '0·0');
     assert.equal(buckets.children[2].children[1].textContent, '0·0');
   });
 }
@@ -681,28 +743,28 @@ test('relative-only bridge candidates can compare a guess directly to the game',
     variationMoves: [{ coord: 'C3', phase: 'full' }],
   });
   assert.deepEqual(h.statsMap()['Mean vs game (pts)'], ['–', '-0.10']);
-  assert.deepEqual(h.statsMap()['Worse than game'], ['–', '1']);
+  assert.deepEqual(h.statsMap()['Equivalent to game'], ['–', '1']);
+  assert.deepEqual(h.statsMap()['Worse than game'], ['–', '0']);
   const buckets = h.statsBox.children.find((row) => row.className === 'kp-buckets');
   assert.deepEqual(
     buckets.children.map((cell) => cell.children[1].textContent),
-    ['0·1', '0·0', '0·0', '0·0', '0·0', '0·0']
+    ['0·0', '0·0', '0·0', '0·0', '0·0']
   );
 });
 
 test('game-relative buckets count only worse guesses at the correct loss thresholds for both colors', () => {
   const cases = [
-    { delta: 3, outcome: 'Better than game', bucket: null },
-    { delta: 0.04, outcome: 'Equivalent to game', bucket: null },
-    { delta: -0.04, outcome: 'Equivalent to game', bucket: null },
-    { delta: -0.1, outcome: 'Worse than game', bucket: 0 },
-    { delta: -0.5, outcome: 'Worse than game', bucket: 1 },
-    { delta: -1.5, outcome: 'Worse than game', bucket: 2 },
-    { delta: -3, outcome: 'Worse than game', bucket: 3 },
-    { delta: -6, outcome: 'Worse than game', bucket: 4 },
-    { delta: -12, outcome: 'Worse than game', bucket: 5 },
+    { delta: 3, outcome: 'Better than game', bucket: null, badge: 'BETTER · 3.0 PTS', color: '#1e9600' },
+    { delta: 0.5, outcome: 'Equivalent to game', bucket: null, badge: 'EQUIVALENT · 0.5 PTS', color: '#4fc3f7' },
+    { delta: -0.5, outcome: 'Equivalent to game', bucket: null, badge: 'EQUIVALENT · 0.5 PTS', color: '#4fc3f7' },
+    { delta: -0.6, outcome: 'Worse than game', bucket: 0, badge: 'WORSE · 0.6 PTS', color: '#abe62e' },
+    { delta: -1.5, outcome: 'Worse than game', bucket: 1, badge: 'WORSE · 1.5 PTS', color: '#f2f200' },
+    { delta: -3, outcome: 'Worse than game', bucket: 2, badge: 'WORSE · 3.0 PTS', color: '#e6661a' },
+    { delta: -6, outcome: 'Worse than game', bucket: 3, badge: 'WORSE · 6.0 PTS', color: '#cc0000' },
+    { delta: -12, outcome: 'Worse than game', bucket: 4, badge: 'WORSE · 12.0 PTS', color: '#72216b' },
   ];
   for (const [player, sign] of [['B', 1], ['W', -1]]) {
-    for (const { delta, outcome, bucket } of cases) {
+    for (const { delta, outcome, bucket, badge, color } of cases) {
       const h = harness();
       h.setState({
         currentNodeId: 'node-5',
@@ -727,8 +789,10 @@ test('game-relative buckets count only worse guesses at the correct loss thresho
       });
       const side = player === 'B' ? 0 : 1;
       assert.equal(h.statsMap()[outcome][side], '1', `${player}: ${delta}`);
+      assert.equal(h.outcomeBadge().textContent, badge, `${player}: ${delta}`);
+      assert.equal(h.outcomeBadge().style.color, color, `${player}: ${delta}`);
       const buckets = h.statsBox.children.find((row) => row.className === 'kp-buckets');
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 5; i++) {
         const expected = i === bucket ? (side === 0 ? '1·0' : '0·1') : '0·0';
         assert.equal(buckets.children[i].children[1].textContent, expected, `${player}: ${delta}, bucket ${i}`);
       }

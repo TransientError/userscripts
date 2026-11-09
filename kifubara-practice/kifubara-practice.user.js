@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         Kifubara Practice Prototype
+// @name         Kifubara Practice
 // @namespace    https://github.com/TransientError
-// @version      0.4
+// @version      1.3
 // @description  Guess the next recorded move before revealing Kifubara's game and AI choices.
 // @author       TransientError
 // @match        https://kifubara.app/games/*
@@ -16,9 +16,10 @@
   const TAG = '[Kifubara Practice]';
   const ANALYSIS_TIMEOUT = 60000;
   const RETURN_TIMEOUT = 5000;
-  const LOSS_THRESHOLDS = [12, 6, 3, 1.5, 0.5, 0];
-  const LOSS_LABELS = ['≥ 12', '≥ 6', '≥ 3', '≥ 1.5', '≥ 0.5', '< 0.5'];
-  const LOSS_COLORS = ['#72216b', '#cc0000', '#e6661a', '#f2f200', '#abe62e', '#1e9600'];
+  const LOSS_THRESHOLDS = [12, 6, 3, 1.5, 0.5];
+  const LOSS_LABELS = ['≥ 12', '≥ 6', '≥ 3', '≥ 1.5', '> 0.5'];
+  const LOSS_COLORS = ['#72216b', '#cc0000', '#e6661a', '#f2f200', '#abe62e'];
+  const BETTER_COLOR = '#1e9600';
 
   let viewer = null;
   let enabled = false;
@@ -30,6 +31,7 @@
   let generation = 0;
   let savedAiEnabled = null;
   let internalAiToggle = false;
+  let analysisVisible = true;
   let statsExpanded = true;
   const gameRecords = new Map();
 
@@ -59,7 +61,7 @@
       meanGameDifference: null,
       pending: 0,
       unavailable: 0,
-      buckets: [0, 0, 0, 0, 0, 0],
+      buckets: Array(LOSS_LABELS.length).fill(0),
     });
     const report = {
       B: makePlayer(), W: makePlayer(), totalGuesses: 0, matched: 0,
@@ -77,7 +79,7 @@
       if (Number.isFinite(record.deltaRecorded)) {
         p.comparableGuesses++;
         p.totalGameDifference += record.deltaRecorded;
-        if (Math.abs(record.deltaRecorded) < 0.05) {
+        if (Math.abs(record.deltaRecorded) <= 0.5) {
           p.equivalentToGame++;
         } else if (record.deltaRecorded > 0) {
           p.betterThanGame++;
@@ -169,11 +171,67 @@
       font-size: 13px !important;
       padding: 6px 10px !important;
     }
-    #kifubara-practice-status {
+    .kp-status-wrap {
       flex: 1 1 12em;
       min-width: 10em;
+    }
+    #kifubara-practice-status {
+      display: block;
       white-space: pre-line;
       font-size: 13px;
+    }
+    .kp-outcome {
+      display: block;
+      width: fit-content;
+      margin-bottom: 5px;
+      padding: 4px 8px;
+      border: 2px solid currentColor;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 800;
+      letter-spacing: .03em;
+      line-height: 1.2;
+    }
+    .kp-outcome[hidden] {
+      display: none !important;
+    }
+    #kifubara-practice-analysis {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 10px 12px;
+      border: 1px solid #444;
+      border-radius: 8px;
+      background: #282520;
+      font-variant-numeric: tabular-nums;
+    }
+    #kifubara-practice-analysis[hidden] {
+      display: none !important;
+    }
+    .kp-analysis-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .kp-analysis-label {
+      color: #999;
+      font-size: 13px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    #kifubara-practice-analysis-pct {
+      font-size: 24px;
+      font-weight: 600;
+      line-height: 1;
+    }
+    .kp-analysis-score-row {
+      padding-top: 4px;
+      border-top: 1px solid #3a3834;
+    }
+    #kifubara-practice-analysis-score {
+      font-size: 15px;
+      font-weight: 600;
     }
     #kifubara-practice-stats {
       display: flex;
@@ -217,7 +275,7 @@
     }
     .kp-buckets {
       display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 4px;
       padding-top: 4px;
       border-top: 1px solid #333;
@@ -251,20 +309,48 @@
   toggle.type = 'button';
   toggle.textContent = 'Practice';
   toggle.setAttribute('aria-pressed', 'false');
+  const statusWrap = document.createElement('span');
+  statusWrap.className = 'kp-status-wrap';
+  const outcomeBadge = document.createElement('strong');
+  outcomeBadge.className = 'kp-outcome';
+  outcomeBadge.hidden = true;
   const status = document.createElement('span');
   status.id = 'kifubara-practice-status';
   status.setAttribute('aria-live', 'polite');
   status.textContent = 'Loading review…';
+  statusWrap.append(outcomeBadge, status);
+  const analysisToggle = document.createElement('button');
+  analysisToggle.type = 'button';
+  analysisToggle.textContent = 'Analysis';
+  analysisToggle.setAttribute('aria-pressed', 'true');
   const statsToggle = document.createElement('button');
   statsToggle.type = 'button';
   statsToggle.id = 'kifubara-practice-stats-toggle';
   statsToggle.textContent = 'Stats';
   statsToggle.setAttribute('aria-expanded', 'true');
-  topBar.append(toggle, status, statsToggle);
+  topBar.append(toggle, statusWrap, analysisToggle, statsToggle);
 
   const statsBox = document.createElement('div');
   statsBox.id = 'kifubara-practice-stats';
-  panel.append(topBar, statsBox);
+  const analysisCard = document.createElement('div');
+  analysisCard.id = 'kifubara-practice-analysis';
+  const analysisMainRow = document.createElement('div');
+  analysisMainRow.className = 'kp-analysis-row';
+  const analysisSide = document.createElement('span');
+  analysisSide.className = 'kp-analysis-label';
+  const analysisPct = document.createElement('span');
+  analysisPct.id = 'kifubara-practice-analysis-pct';
+  analysisMainRow.append(analysisSide, analysisPct);
+  const analysisScoreRow = document.createElement('div');
+  analysisScoreRow.className = 'kp-analysis-row kp-analysis-score-row';
+  const analysisScoreLabel = document.createElement('span');
+  analysisScoreLabel.className = 'kp-analysis-label';
+  analysisScoreLabel.textContent = 'Score';
+  const analysisScore = document.createElement('span');
+  analysisScore.id = 'kifubara-practice-analysis-score';
+  analysisScoreRow.append(analysisScoreLabel, analysisScore);
+  analysisCard.append(analysisMainRow, analysisScoreRow);
+  panel.append(topBar, analysisCard, statsBox);
 
   function fmtPct(value) {
     return Number.isFinite(value) ? `${value.toFixed(1)}%` : '–';
@@ -365,6 +451,12 @@
     renderStats();
   });
 
+  analysisToggle.addEventListener('click', () => {
+    analysisVisible = !analysisVisible;
+    analysisCard.hidden = !analysisVisible;
+    analysisToggle.setAttribute('aria-pressed', String(analysisVisible));
+  });
+
   function normalizeCoord(value) {
     if (typeof value !== 'string') return null;
     const coord = value.trim().toUpperCase();
@@ -403,8 +495,13 @@
     savedAiEnabled = null;
   }
 
-  function report(message, error) {
+  function report(message, error, outcome = null) {
     if (status.textContent !== message) status.textContent = message;
+    outcomeBadge.hidden = !outcome;
+    if (outcome) {
+      outcomeBadge.textContent = outcome.label;
+      outcomeBadge.style.color = outcome.color;
+    }
     if (error) console.warn(TAG, message, error);
     else console.debug(TAG, message);
   }
@@ -440,12 +537,42 @@
     if (!Array.isArray(rows) || !Number.isInteger(moveNumber) || moveNumber < 0) {
       return { topMove: null, afterGameScore: null };
     }
+
     const nextRow = rows.find((entry) => entry.move_number === moveNumber + 1);
     const afterRow = rows.find((entry) => entry.move_number === moveNumber + 2);
     return {
       topMove: normalizeCoord(nextRow?.top_move),
       afterGameScore: Number.isFinite(afterRow?.score_estimate) ? afterRow.score_estimate : null,
     };
+  }
+
+  function analysisAt(moveNumber) {
+    const rows = window.__KIFU_ANALYSIS?.moves;
+    if (!Array.isArray(rows) || !rows.length || !Number.isInteger(moveNumber)) return null;
+    const row = moveNumber <= 0
+      ? rows.find((entry) => entry.move_number === 1)
+      : rows.find((entry) => entry.move_number === moveNumber + 1)
+        ?? rows.find((entry) => entry.move_number === moveNumber)
+        ?? rows.at(-1);
+    const winRate = Number.isFinite(row?.root_winrate) ? row.root_winrate : row?.win_rate;
+    if (!Number.isFinite(winRate)) return null;
+    const blackPct = Math.round(winRate * 100);
+    const side = winRate >= 0.5 ? 'Black' : 'White';
+    const pct = side === 'Black' ? blackPct : 100 - blackPct;
+    const score = row?.score_estimate;
+    let scoreText = '—';
+    if (Number.isFinite(score)) {
+      scoreText = score > 0.05 ? `B+${Math.abs(score).toFixed(1)}`
+        : score < -0.05 ? `W+${Math.abs(score).toFixed(1)}` : 'Jigo';
+    }
+    return { side, pct: `${pct}%`, score: scoreText };
+  }
+
+  function renderAnalysis(detail = review) {
+    const analysis = analysisAt(detail?.currentMoveNumber);
+    analysisSide.textContent = analysis?.side ?? 'Analysis';
+    analysisPct.textContent = analysis?.pct ?? '—';
+    analysisScore.textContent = analysis?.score ?? '—';
   }
 
   function computeGameDifference(run) {
@@ -484,6 +611,7 @@
     clearTimer();
     attempt = null;
     if (!enabled || !detail) return;
+    renderAnalysis(detail);
     const recorded = detail.forwardMoves?.find((move) => move.isTrunk)
       ?? detail.forwardMoves?.[0];
     const coord = normalizeCoord(recorded?.coord);
@@ -494,7 +622,6 @@
     if (!recorded || !coord) {
       renderStats();
       report('Practice on · no recorded next move');
-      setTransientAi(false);
       return;
     }
     attempt = {
@@ -514,7 +641,6 @@
     };
     renderStats();
     report('Practice on · play your move');
-    setTransientAi(false);
   }
 
   function stop(message = 'Practice off') {
@@ -537,13 +663,38 @@
       const game = run.candidates.find((candidate) => candidate.coord === run.recordedCoord);
       const gameScore = Number.isFinite(game?.score) ? game.score : run.gameScore;
       if (Number.isFinite(run.guessScore) && Number.isFinite(gameScore) && !run.mover) {
-        return 'Scores shown from Black perspective';
+        return {
+          label: 'COMPARISON UNAVAILABLE',
+          color: '#aaa',
+          message: 'Scores shown from Black perspective',
+        };
       }
-      return 'Comparison unavailable';
+      return {
+        label: 'COMPARISON UNAVAILABLE',
+        color: '#aaa',
+        message: 'Comparison unavailable',
+      };
     }
-    if (Math.abs(deltaRecorded) < 0.05) return 'Equivalent to game';
-    return deltaRecorded > 0 ? `Better than game by ${deltaRecorded.toFixed(1)}`
-      : `Worse than game by ${Math.abs(deltaRecorded).toFixed(1)}`;
+    if (Math.abs(deltaRecorded) <= 0.5) {
+      return {
+        label: `EQUIVALENT · ${Math.abs(deltaRecorded).toFixed(1)} PTS`,
+        color: '#4fc3f7',
+        message: null,
+      };
+    }
+    if (deltaRecorded > 0) {
+      return {
+        label: `BETTER · ${deltaRecorded.toFixed(1)} PTS`,
+        color: BETTER_COLOR,
+        message: null,
+      };
+    }
+    const bucket = classifyLossIndex(-deltaRecorded);
+    return {
+      label: `WORSE · ${Math.abs(deltaRecorded).toFixed(1)} PTS`,
+      color: LOSS_COLORS[bucket],
+      message: null,
+    };
   }
 
   function showReveal() {
@@ -551,17 +702,19 @@
     if (!enabled || !run || phase !== 'returning') return;
     clearTimer();
     phase = 'revealing';
+    setTransientAi(savedAiEnabled === true);
     setMask(false);
-    setTransientAi(true);
     recordAttempt(run, 'unavailable');
-    report([
+    const outcome = verdict(run);
+    const lines = [
       `You: ${run.guessCoord ?? 'unknown'}${Number.isFinite(run.guessScore)
         ? ` (${run.guessScore.toFixed(1)})` : ' (analysis unavailable)'}`,
       `Game: ${run.recordedCoord}`,
       `AI: ${run.aiCoord ?? 'unavailable'}`,
-      verdict(run),
-      'Forward follows the recorded game.',
-    ].join('\n'));
+    ];
+    if (outcome.message) lines.push(outcome.message);
+    lines.push('Forward follows the recorded game.');
+    report(lines.join('\n'), null, outcome);
   }
 
   function returnForReveal() {
@@ -617,6 +770,7 @@
     if (!detail || detail.currentNodeId == null
       || !Number.isInteger(detail.currentMoveNumber)) return;
     review = detail;
+    renderAnalysis(detail);
     if (!enabled || location.pathname !== practicePath) return;
     if (!attempt) {
       const recorded = detail.forwardMoves?.find((move) => move.isTrunk)
@@ -691,16 +845,38 @@
 
   const touchLayout = window.matchMedia?.('(max-width: 1279px)');
 
+  function nativeStatsTabs() {
+    const desktopTabs = document.querySelector('.gd-rtabs');
+    if (desktopTabs) return desktopTabs;
+    const tabs = [...(document.querySelectorAll?.('[role="tab"], button') ?? [])];
+    const stats = tabs.find((element) => element.textContent.trim() === 'Stats');
+    const comments = tabs.find((element) => element.textContent.trim() === 'Comments');
+    if (!stats || !comments) {
+      return touchLayout?.matches ? null : document.querySelector('.gd-comments');
+    }
+    const ancestors = new Set();
+    for (let node = stats.parentElement; node; node = node.parentElement) {
+      ancestors.add(node);
+    }
+    for (let node = comments.parentElement; node; node = node.parentElement) {
+      if (ancestors.has(node)) return node;
+    }
+    return touchLayout?.matches ? null : document.querySelector('.gd-comments');
+  }
+
   function placeControls() {
+    const statsTabs = nativeStatsTabs();
     const mobileMoves = touchLayout?.matches
       ? document.querySelector('.gtf-pane[data-pane="moves"]') || document.querySelector('[data-gtf-panes]')
       : null;
-    const container = mobileMoves
+    const container = statsTabs?.parentElement
+      || mobileMoves
       || document.querySelector('.gd-panel')
       || document.querySelector('[data-gtf-panes]')
       || document.body;
-    if (panel.parentElement !== container) {
-      if (mobileMoves && container.firstChild) container.insertBefore(panel, container.firstChild);
+    if (panel.parentElement !== container || (statsTabs && statsTabs.previousElementSibling !== panel)) {
+      if (statsTabs) container.insertBefore(panel, statsTabs);
+      else if (mobileMoves && container.firstChild) container.insertBefore(panel, container.firstChild);
       else container.appendChild(panel);
     }
   }
@@ -714,6 +890,9 @@
     if (!found) return false;
     viewer = found;
     placeControls();
+    setTimeout(placeControls, 0);
+    setTimeout(placeControls, 500);
+    renderAnalysis(readReview());
     renderStats();
     if (!enabled) report('Practice ready');
     return true;
